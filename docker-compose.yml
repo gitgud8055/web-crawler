@@ -1,0 +1,122 @@
+networks:
+  internal-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.5.0.0/16
+          gateway: 10.5.0.1
+
+services:
+  cassandra:
+    image: cassandra:4.1.2
+    container_name: cassandra
+    hostname: cassandra
+    ports:
+      - 9042:9042
+    environment:
+      - CASSANDRA_CLUSTER_NAME=chatbot-cluster
+      - CASSANDRA_SEEDS=cassandra
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.5
+    restart: always
+
+  puppeteer:
+    build:
+      context: ./services/puppeteer
+      dockerfile: Dockerfile
+    container_name: puppeteer
+    image: puppeteer-server:latest
+    ports:
+      - 2000:2000
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.2
+    restart: always
+
+  cassandra-web:
+    image: jmaciel33/cassandra-web
+    container_name: cassandra-web
+    depends_on:
+      - cassandra
+    environment:
+      - CASSANDRA_HOST_IP=10.5.0.5
+      - CASSANDRA_PORT=9042
+    ports:
+      - 3000:3000
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.3
+    restart: always
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.3.2
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.4
+    restart: always
+
+  kafka:
+    image: confluentinc/cp-kafka:7.3.2
+    container_name: kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_REPLICA_FETCH_MAX_BYTES: 5048576
+      KAFKA_PRODUCER_MAX_REQUEST_SIZE: 5048576
+      KAFKA_CONSUMER_MAX_PARTITION_FETCH_BYTES: 5048576
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.6
+    restart: always
+
+  namenode:
+    image: bde2020/hadoop-namenode:2.0.0-hadoop3.2.1-java8
+    container_name: namenode
+    ports:
+      - 9000:9000  # Namenode RPC for HDFS clients
+      - 9870:9870  # WebUI - dfs.namenode.http-address
+    volumes:
+      - hadoop_namenode:/hadoop/dfs/name
+    environment:
+      - CLUSTER_NAME=test
+    env_file:
+      - ./services/hadoop/hadoop.env
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.8
+    restart: always
+
+  datanode:
+    image: bde2020/hadoop-datanode:2.0.0-hadoop3.2.1-java8
+    container_name: datanode
+    hostname: localhost
+    ports:
+      - 9864:9864 
+      - 9866:9866  
+    depends_on:
+      - namenode
+    volumes:
+      - hadoop_datanode:/hadoop/dfs/data
+    environment:
+      SERVICE_PRECONDITION: "namenode:9870"
+    env_file:
+      - ./services/hadoop/hadoop.env
+    networks:
+      internal-network:
+        ipv4_address: 10.5.0.9
+    restart: always 
+
+volumes:
+  hadoop_namenode:
+  hadoop_datanode:
